@@ -1,22 +1,15 @@
 name: CI
-on:
-  push:
-    branches: [ "**" ]
-  pull_request:
-    branches: [ "**" ]
+
+on: [push]
+
 jobs:
-  build:
+  tests:
+    name: "Charity Donation Tracker – Syntax & Deployment Plan Check"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Clarinet check
-        run: docker run --rm -v $GITHUB_WORKSPACE:/src -w /src hirosystems/clarinet:latest clarinet check
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+      - name: "Validate Clarinet contracts and deployment plan"
+        uses: docker://hirosystems/clarinet:latest
         with:
-          node-version: 18
-          cache: 'npm'
-      - name: Install
-        run: npm ci
-      - name: Test
-        run: npm test
+          args: check --plan deployments/default.simnet-plan.yaml

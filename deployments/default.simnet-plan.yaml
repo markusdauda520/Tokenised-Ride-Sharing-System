@@ -62,6 +62,6 @@ plan:
         - emulated-contract-publish:
             contract-name: Tokenised-Ride-Sharing-System
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
-            path: contracts/Tokenised-Ride-Sharing-System.clar
+            path: "contracts\\Tokenised-Ride-Sharing-System.clar"
             clarity-version: 3
       epoch: "3.1"
