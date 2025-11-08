@@ -5,6 +5,8 @@
 (define-constant ERR_INVALID_STATUS (err u103))
 (define-constant ERR_INSUFFICIENT_BALANCE (err u104))
 (define-constant ERR_INVALID_AMOUNT (err u105))
+(define-constant ERR_ALREADY_CANCELLED (err u106))
+(define-constant CANCELLATION_PENALTY_PERCENT u20)
 
 (define-fungible-token ride-token)
 
@@ -27,6 +29,7 @@
         rating: uint,
         total-rides: uint,
         token-balance: uint,
+        cancelled-rides: uint,
     }
 )
 
@@ -41,6 +44,8 @@
         status: (string-ascii 20),
         created-at: uint,
         completed-at: (optional uint),
+        cancelled-at: (optional uint),
+        penalty-paid: uint,
     }
 )
 
@@ -94,6 +99,7 @@
             rating: u5,
             total-rides: u0,
             token-balance: u0,
+            cancelled-rides: u0,
         })
         (ok true)
     )
@@ -129,6 +135,8 @@
             status: "requested",
             created-at: stacks-block-height,
             completed-at: none,
+            cancelled-at: none,
+            penalty-paid: u0,
         })
         (var-set next-ride-id (+ ride-id u1))
         (ok ride-id)
@@ -184,6 +192,56 @@
         (update-driver-stats driver fare)
         (update-rider-stats rider)
         (ok true)
+    )
+)
+
+(define-public (cancel-ride (ride-id uint))
+    (let (
+            (ride-data (unwrap! (map-get? rides { ride-id: ride-id }) ERR_NOT_FOUND))
+            (rider (get rider ride-data))
+            (driver-opt (get driver ride-data))
+            (fare (get fare ride-data))
+            (status (get status ride-data))
+            (rider-data (unwrap! (map-get? riders { rider: rider }) ERR_NOT_FOUND))
+        )
+        (asserts! (is-eq tx-sender rider) ERR_UNAUTHORIZED)
+        (asserts! (or (is-eq status "requested") (is-eq status "accepted"))
+            ERR_INVALID_STATUS
+        )
+        (if (is-eq status "accepted")
+            (let (
+                    (driver (unwrap! driver-opt ERR_NOT_FOUND))
+                    (penalty (/ (* fare CANCELLATION_PENALTY_PERCENT) u100))
+                    (rider-balance (ft-get-balance ride-token rider))
+                )
+                (asserts! (>= rider-balance penalty) ERR_INSUFFICIENT_BALANCE)
+                (try! (ft-transfer? ride-token penalty rider driver))
+                (map-set rides { ride-id: ride-id }
+                    (merge ride-data {
+                        status: "cancelled",
+                        cancelled-at: (some stacks-block-height),
+                        penalty-paid: penalty,
+                    })
+                )
+                (map-set riders { rider: rider }
+                    (merge rider-data { cancelled-rides: (+ (get cancelled-rides rider-data) u1) })
+                )
+                (ok penalty)
+            )
+            (begin
+                (map-set rides { ride-id: ride-id }
+                    (merge ride-data {
+                        status: "cancelled",
+                        cancelled-at: (some stacks-block-height),
+                        penalty-paid: u0,
+                    })
+                )
+                (map-set riders { rider: rider }
+                    (merge rider-data { cancelled-rides: (+ (get cancelled-rides rider-data) u1) })
+                )
+                (ok u0)
+            )
+        )
     )
 )
 
@@ -305,4 +363,20 @@
 
 (define-read-only (get-next-ride-id)
     (var-get next-ride-id)
+)
+
+(define-read-only (get-rider-cancellation-stats (rider principal))
+    (let ((rider-data (map-get? riders { rider: rider })))
+        (match rider-data
+            data (ok {
+                total-rides: (get total-rides data),
+                cancelled-rides: (get cancelled-rides data),
+                cancellation-rate: (if (> (get total-rides data) u0)
+                    (/ (* (get cancelled-rides data) u100) (get total-rides data))
+                    u0
+                ),
+            })
+            ERR_NOT_FOUND
+        )
+    )
 )
